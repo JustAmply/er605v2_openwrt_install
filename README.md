@@ -11,6 +11,9 @@ The initramfs image is based on OpenWrt version 23.05.0. If you would like to bu
 ## Steps to Install
 
 > [!WARNING] 
+> **Users are reporting issues with the password generator for firmwares v2.2.6 and above. Please downgrade to v2.2.5 or below before install. For firmwares v2.3.0 and above, please see [#30](https://github.com/chill1Penguin/er605v2_openwrt_install/issues/30).**
+
+> [!WARNING] 
 > **After the install, you will NOT be able to use the recovery mode of the ER605 to flash a factory image to recover from a bad install. You will need to use ubiformat to reflash your mtd3 (firmware) partition if you ever want to restore to the default firmware.**
 
 > [!IMPORTANT] 
@@ -20,7 +23,7 @@ The initramfs image is based on OpenWrt version 23.05.0. If you would like to bu
  2. Generate your shell password by clicking [here](https://chill1penguin.github.io/er605v2_openwrt_install/er605rootpw.html).
  3. SSH into your ER605. You may have trouble estalishing an ssh connection to the router. Take a look into these [ssh tips](SSH_TIPS.md). Follow the steps below for the firmware version you have installed:<br>
 ***v2.0.1 and below:*** Login using the username `root` and the "root password" generated in the previous step.<br>
-***v2.1.1 and above:*** Login using your web configuration GUI credentials. Then run the `enable` command followed by the `debug` command. When you are prompted for a password, enter the "CLI debug mode password" generated in the previous step.
+***v2.1.1 - v2.2.5:*** Login using your web configuration GUI credentials. Then run the `enable` command followed by the `debug` command. When you are prompted for a password, enter the "CLI debug mode password" generated in the previous step.
  4. Backup your MTD partitions (recommended). You can follow a way to achieve this [here](MTD_backup/README.md).
  5. Download to to your PC and transfer the image files `openwrt-initramfs-compact.bin`and `er605v2_write_initramfs.sh` to the ER605. To do this offline run a simple web server on your PC to serve the files running the following:
 ```shell
