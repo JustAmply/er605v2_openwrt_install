@@ -148,25 +148,27 @@ class InstallerWorkflow:
             "Router IP",
             self.inputs.router_ip or self.state.router_ip or "192.168.0.1",
         )
-        self.inputs.username = self._prompt_with_default(
-            "GUI username",
-            self.inputs.username or self.state.username or "admin",
-        )
         self.inputs.mac = self._prompt_with_default(
             "Router MAC address",
             self.inputs.mac or self.state.mac,
         )
-        if self.inputs.router_ip != original_router_ip or self.inputs.mac != original_mac:
+        identity_changed = self.inputs.router_ip != original_router_ip or self.inputs.mac != original_mac
+        previous_username = self.inputs.username or self.state.username
+        if identity_changed:
             self.inputs.host_ip = ""
             self.inputs.firmware_version = ""
         self._rebind_session_for_identity()
+        self.inputs.username = self._prompt_with_default(
+            "GUI username",
+            self.state.username or previous_username or "admin",
+        )
         host_default = self._default_host_ip(self.inputs.router_ip)
-        if self.inputs.router_ip != self.state.router_ip:
+        if identity_changed and not host_default:
             host_default = self._detect_host_ip_or_empty(self.inputs.router_ip)
         if host_default:
             self.inputs.host_ip = self._prompt_with_default("Host IP for transfers", host_default)
         firmware_default = self.inputs.firmware_version
-        if self.inputs.router_ip == self.state.router_ip and self.inputs.mac == self.state.mac:
+        if not identity_changed:
             firmware_default = firmware_default or self.state.firmware_version
         if firmware_default:
             self.inputs.firmware_version = self._prompt_with_default("Firmware version", firmware_default)
@@ -860,6 +862,8 @@ class InstallerWorkflow:
     def install_initramfs(self) -> None:
         if not self.state.checkpoints["backup_verified"]:
             raise RuntimeError("backup has not been verified; refusing to flash")
+        if self.state.checkpoints["initramfs_installed"]:
+            raise RuntimeError("initramfs has already been installed for this session; refusing to flash again")
         self._validate_local_artifacts()
         if self.inputs.dry_run:
             self._print("dry-run: install-initramfs would transfer files and stop before flash")

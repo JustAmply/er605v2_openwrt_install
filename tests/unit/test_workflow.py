@@ -117,7 +117,7 @@ class WorkflowTests(unittest.TestCase):
             with mock.patch.object(workflow, "_confirm_yes_no", return_value=False):
                 with mock.patch(
                     "builtins.input",
-                    side_effect=["192.168.0.2", "admin", "AA-BB-CC-DD-EE-FF", "", ""],
+                    side_effect=["192.168.0.2", "AA-BB-CC-DD-EE-FF", "", "", ""],
                 ):
                     workflow._confirm_or_edit_identity()
 
@@ -125,6 +125,29 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(workflow.state.router_ip, "192.168.0.2")
             self.assertEqual(workflow.state.mac, "AA:BB:CC:DD:EE:FF")
             self.assertFalse(workflow.state.checkpoints["backup_verified"])
+            self.assertEqual(workflow.state.username, "admin")
+
+    def test_identity_edit_uses_saved_username_from_target_session(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow._sync_identity()
+
+            target_dir = Path(temp_dir) / ".er605_sessions" / "192-168-0-2-aabbccddeeff"
+            target_store = SessionStore(target_dir)
+            target_state = target_store.load()
+            target_state.router_ip = "192.168.0.2"
+            target_state.username = "operator"
+            target_state.mac = "AA:BB:CC:DD:EE:FF"
+            target_store.save(target_state)
+
+            with mock.patch.object(workflow, "_confirm_yes_no", return_value=False):
+                with mock.patch(
+                    "builtins.input",
+                    side_effect=["192.168.0.2", "AA-BB-CC-DD-EE-FF", "", ""],
+                ):
+                    workflow._confirm_or_edit_identity()
+
+            self.assertEqual(workflow.state.username, "operator")
 
     def test_preflight_subcommand_runs_without_wizard_confirmation(self) -> None:
         with self._tempdir() as temp_dir:
@@ -236,6 +259,17 @@ class WorkflowTests(unittest.TestCase):
                 hosted_files,
                 {"er605v2_write_initramfs.sh", "openwrt-initramfs-compact.bin"},
             )
+
+    def test_install_initramfs_refuses_when_session_is_already_flashed(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow._sync_identity()
+            workflow.state.checkpoints["backup_verified"] = True
+            workflow.state.checkpoints["initramfs_installed"] = True
+            workflow.store.save(workflow.state)
+
+            with self.assertRaises(RuntimeError):
+                workflow.install_initramfs()
 
     def test_install_initramfs_can_skip_openwrt_probe(self) -> None:
         with self._tempdir() as temp_dir:
