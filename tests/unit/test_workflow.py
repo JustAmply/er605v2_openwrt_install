@@ -89,6 +89,25 @@ class WorkflowTests(unittest.TestCase):
                 )
             self.assertIn("ER605KV flash_status=0", output)
 
+    def test_run_stock_script_rejects_nonzero_exit_without_completion_marker(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow._sync_identity()
+            ssh_result = SSHResult(
+                returncode=255,
+                stdout="root@ER605:/#\nConnection to 192.168.20.1 closed.\n",
+                stderr="",
+                command=["ssh"],
+            )
+            with mock.patch.object(workflow.ssh, "run_script", return_value=ssh_result):
+                with self.assertRaises(RuntimeError):
+                    workflow._run_stock_script(
+                        login_password="secret",
+                        root_commands="false",
+                        timeout=5,
+                        action_name="backup",
+                    )
+
     def test_install_initramfs_hosts_only_transfer_files(self) -> None:
         with self._tempdir() as temp_dir:
             workflow = self._workflow(temp_dir)

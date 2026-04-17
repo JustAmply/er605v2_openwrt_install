@@ -4,6 +4,7 @@ This repository provides a method to install OpenWrt on a factory-flashed TP-Lin
 
 ## Host Installer CLI
 This repository also includes a guarded host-side CLI wizard that automates the stock-to-OpenWrt flow with checkpoints, verified MTD backup handling, managed file serving, and an explicit flash confirmation gate.
+Run it from the downloaded repository root with `python -m er605_installer`.
 
 ## Repository Layout
 - `er605_installer/`: public Python package entrypoints such as `python -m er605_installer`

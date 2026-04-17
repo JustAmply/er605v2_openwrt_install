@@ -59,12 +59,42 @@ def discover_existing_session_dir(repo_root: Path) -> Path | None:
     )
 
 
+def _normalized_identity(value: str) -> str:
+    return "".join(ch for ch in value if ch.isalnum()).lower()
+
+
+def discover_matching_session_dir(repo_root: Path, router_ip: str, mac: str) -> Path | None:
+    sessions_root = repo_root / ".er605_sessions"
+    if not sessions_root.exists():
+        return None
+    normalized_mac = _normalized_identity(mac)
+    matches: list[Path] = []
+    for path in sessions_root.iterdir():
+        if not path.is_dir() or not (path / "session.json").exists():
+            continue
+        state = SessionStore(path).load()
+        matches_router = not router_ip or state.router_ip == router_ip
+        matches_mac = not normalized_mac or _normalized_identity(state.mac) == normalized_mac
+        if matches_router and matches_mac:
+            matches.append(path.resolve())
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    raise RuntimeError(
+        "multiple saved sessions match the supplied router identity; pass --session-dir to choose one"
+    )
+
+
 def resolve_cli_session_dir(repo_root: Path, args: argparse.Namespace, config: dict) -> Path:
     explicit = args.session_dir or config.get("session_dir")
     router_ip = merged_option(args, config, "router-ip")
     mac = merged_option(args, config, "mac")
     if explicit:
         return Path(explicit).expanduser().resolve()
+    discovered_match = discover_matching_session_dir(repo_root, router_ip, mac)
+    if discovered_match is not None:
+        return discovered_match
     if not router_ip and not mac:
         discovered = discover_existing_session_dir(repo_root)
         if discovered is not None:

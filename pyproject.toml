@@ -1,11 +1,8 @@
 [project]
 name = "er605-host-installer"
 version = "0.1.0"
-description = "Guarded host-side installer for TP-Link ER605 v2 OpenWrt migration"
+description = "Repo-local guarded host-side installer for TP-Link ER605 v2 OpenWrt migration"
 requires-python = ">=3.11"
-
-[project.scripts]
-er605-installer = "er605_installer.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

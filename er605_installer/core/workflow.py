@@ -144,9 +144,10 @@ class InstallerWorkflow:
         allow_disconnect: bool = False,
         success_marker: str | None = None,
     ) -> str:
+        completion_marker = f"ER605KV command_completed={uuid.uuid4().hex}"
         script = f"enable\ndebug\n{self.state.debug_password}\n{root_commands}\n"
         if not allow_disconnect:
-            script += "exit\n"
+            script += f'echo "{completion_marker}"\nexit\n'
         result = self.ssh.run_script(
             host=self.state.router_ip,
             username=self.state.username,
@@ -167,10 +168,7 @@ class InstallerWorkflow:
         self._write_transcript(action_name, transcript)
         combined_output = result.stdout + result.stderr
         if result.returncode != 0:
-            clean_root_close = (
-                "Connection to " in combined_output and "root@ER605:/#" in combined_output
-            )
-            if clean_root_close:
+            if not allow_disconnect and completion_marker in combined_output:
                 return combined_output
             if allow_disconnect:
                 disconnected = any(

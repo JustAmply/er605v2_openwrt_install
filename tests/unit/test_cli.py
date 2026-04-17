@@ -1,4 +1,5 @@
 import argparse
+import json
 import shutil
 import unittest
 import uuid
@@ -62,6 +63,25 @@ class CliTests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 resolve_cli_session_dir(repo_root, self._args(), {})
+
+    def test_router_ip_reuses_matching_saved_session_without_mac(self) -> None:
+        with self._tempdir() as temp_dir:
+            repo_root = Path(temp_dir)
+            session_dir = repo_root / ".er605_sessions" / "192-168-20-1-b8fbb32cd769"
+            session_dir.mkdir(parents=True)
+            (session_dir / "session.json").write_text(
+                json.dumps(
+                    {
+                        "router_ip": "192.168.20.1",
+                        "mac": "B8:FB:B3:2C:D7:69",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            resolved = resolve_cli_session_dir(repo_root, self._args(router_ip="192.168.20.1"), {})
+
+            self.assertEqual(resolved, session_dir.resolve())
 
     def test_parser_defaults_to_resume(self) -> None:
         args = build_parser().parse_args([])
