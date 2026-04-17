@@ -1,2 +1,5 @@
 .DS_Store
-
+__pycache__/
+.pytest_cache/
+.er605_sessions/
+.test_tmp/

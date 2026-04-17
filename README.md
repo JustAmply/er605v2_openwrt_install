@@ -2,6 +2,40 @@
 # TP-Link ER605 v2 OpenWrt Installer
 This repository provides a method to install OpenWrt on a factory-flashed TP-Link ER605 hardware version 2 or 2.2 router.
 
+## Host Installer CLI
+This repository also includes a guarded host-side CLI wizard that automates the stock-to-OpenWrt flow with checkpoints, verified MTD backup handling, managed file serving, and an explicit flash confirmation gate.
+
+## Repository Layout
+- `er605_installer/`: public Python package entrypoints such as `python -m er605_installer`
+- `er605_installer/core/`: installer implementation, transport, state handling, and workflow logic
+- `tests/unit/`: unit tests for the host-side installer
+- `MTD_backup/`: manual backup helper files from the original workflow
+- `image-build-files/`: files used to build the initramfs image
+
+Example usage:
+```shell
+python -m er605_installer
+python -m er605_installer resume
+python -m er605_installer preflight
+python -m er605_installer --router-ip 192.168.20.1 --username justus
+```
+
+Supported subcommands:
+- `preflight`
+- `backup`
+- `verify-backup`
+- `install-initramfs`
+- `resume`
+
+Notes:
+- Running the CLI without a subcommand defaults to `resume`, which continues from the saved checkpoint.
+- The CLI reuses an existing single session automatically and tries to detect router IP, MAC, host IP, and firmware version before asking.
+- If the OpenWrt web UI does not answer immediately after the reboot, the installer now prints handoff instructions instead of treating that as a failed flash.
+- The CLI uses the local `ssh` client and a temporary askpass helper to authenticate with the stock firmware.
+- The CLI refuses to flash until a verified backup exists in the session directory.
+- The first release is intentionally conservative and stops after the initramfs boot path; it does not automate the later sysupgrade step.
+- `--skip-openwrt-probe` is optional for manual handoff only when you do not want the web probe at all.
+
 > [!CAUTION] 
 > **Use at your own risk. Your device may become bricked if you do something wrong or as a result of a bug.**
 
