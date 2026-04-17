@@ -72,14 +72,14 @@ class CliTests(unittest.TestCase):
             (session_dir / "session.json").write_text(
                 json.dumps(
                     {
-                        "router_ip": "192.168.20.1",
+                        "router_ip": "192.168.0.1",
                         "mac": "B8:FB:B3:2C:D7:69",
                     }
                 ),
                 encoding="utf-8",
             )
 
-            resolved = resolve_cli_session_dir(repo_root, self._args(router_ip="192.168.20.1"), {})
+            resolved = resolve_cli_session_dir(repo_root, self._args(router_ip="192.168.0.1"), {})
 
             self.assertEqual(resolved, session_dir.resolve())
 

@@ -65,7 +65,7 @@ class InstallerWorkflow:
         self.inputs.firmware_version = self.inputs.firmware_version or self.state.firmware_version
 
     def _discover_router_ip(self) -> str:
-        candidates = ("192.168.20.1", "192.168.0.1", "192.168.1.1")
+        candidates = ("192.168.0.1", "192.168.1.1")
         matches = [candidate for candidate in candidates if can_connect(candidate, 22)]
         if len(matches) == 1:
             return matches[0]
@@ -76,11 +76,96 @@ class InstallerWorkflow:
         value = input(prompt).strip()
         return value or default
 
+    def _confirm_yes_no(self, prompt: str, default_yes: bool = True) -> bool:
+        suffix = "[Y/n]" if default_yes else "[y/N]"
+        while True:
+            answer = input(f"{prompt} {suffix} ").strip().lower()
+            if not answer:
+                return default_yes
+            if answer in {"y", "yes"}:
+                return True
+            if answer in {"n", "no"}:
+                return False
+            self._print("Please answer yes or no.")
+
+    def _default_host_ip(self, router_ip: str) -> str:
+        if self.inputs.host_ip:
+            return self.inputs.host_ip
+        if self.state.host_ip:
+            return self.state.host_ip
+        if not router_ip:
+            return ""
+        try:
+            return detect_host_ip(router_ip)
+        except OSError:
+            return ""
+
+    def _wizard_status_lines(self) -> list[str]:
+        checkpoints = self.state.checkpoints
+        steps = [
+            ("Preflight", checkpoints["preflight_completed"]),
+            ("Backup", checkpoints["backup_verified"]),
+            ("Transfer", checkpoints["initramfs_transferred"]),
+            ("Flash", checkpoints["initramfs_installed"]),
+            ("Handoff", checkpoints["openwrt_probe_succeeded"]),
+        ]
+        return [f"- {label}: {'done' if completed else 'pending'}" for label, completed in steps]
+
+    def _print_wizard_overview(self) -> None:
+        self._print(
+            "\n".join(
+                [
+                    "ER605 installer wizard",
+                    *self._wizard_status_lines(),
+                    "",
+                    "Router session:",
+                    f"- Router IP: {self.state.router_ip}",
+                    f"- GUI user: {self.state.username}",
+                    f"- Router MAC: {self.state.mac}",
+                    f"- Host IP for transfers: {self.state.host_ip}",
+                    f"- Firmware version: {self.state.firmware_version or 'auto-detect during preflight'}",
+                    f"- Session directory: {self.store.session_dir}",
+                ]
+            )
+        )
+
+    def _confirm_or_edit_identity(self) -> None:
+        self._print_wizard_overview()
+        if self._confirm_yes_no("Use these values?", default_yes=True):
+            return
+        self.inputs.router_ip = self._prompt_with_default(
+            "Router IP",
+            self.inputs.router_ip or self.state.router_ip or "192.168.0.1",
+        )
+        self.inputs.username = self._prompt_with_default(
+            "GUI username",
+            self.inputs.username or self.state.username or "admin",
+        )
+        self.inputs.mac = self._prompt_with_default(
+            "Router MAC address",
+            self.inputs.mac or self.state.mac,
+        )
+        host_default = self._default_host_ip(self.inputs.router_ip)
+        if host_default:
+            self.inputs.host_ip = self._prompt_with_default("Host IP for transfers", host_default)
+        firmware_default = self.inputs.firmware_version or self.state.firmware_version
+        if firmware_default:
+            self.inputs.firmware_version = self._prompt_with_default("Firmware version", firmware_default)
+        self._sync_identity()
+        self._print_wizard_overview()
+
+    def _confirm_step(self, step_label: str, details: list[str], prompt: str) -> bool:
+        self._print("\n".join([step_label, *details]))
+        if self._confirm_yes_no(prompt, default_yes=True):
+            return True
+        self._print(f"{step_label} skipped.")
+        return False
+
     def _require_inputs(self) -> None:
         if not self.inputs.router_ip:
             self.inputs.router_ip = self._discover_router_ip()
         if not self.inputs.router_ip:
-            self.inputs.router_ip = self._prompt_with_default("Router IP", "192.168.20.1")
+            self.inputs.router_ip = self._prompt_with_default("Router IP", "192.168.0.1")
         if not self.inputs.username:
             self.inputs.username = self._prompt_with_default("GUI username", "admin")
         if not self.inputs.mac:
@@ -326,6 +411,16 @@ class InstallerWorkflow:
         self.store.ensure_layout()
         self._sync_identity()
         self._print_identity_summary()
+        if not self._confirm_step(
+            "Step 1/5: Preflight",
+            [
+                "- Validate local initramfs files and checksum",
+                "- Connect to the router and inspect model, firmware, UBI volumes, and free space",
+                "- Save detected values into the current session",
+            ],
+            "Run preflight now?",
+        ):
+            return
         self.ssh.ensure_available()
         self._validate_local_artifacts()
         if self.inputs.dry_run:
@@ -450,6 +545,18 @@ class InstallerWorkflow:
     def backup(self) -> None:
         if not self.state.checkpoints["preflight_completed"]:
             self.preflight()
+            if not self.state.checkpoints["preflight_completed"]:
+                return
+        if not self._confirm_step(
+            "Step 2/5: Backup",
+            [
+                "- Read all MTD partitions from the router",
+                f"- Store backup files under {self.store.backup_dir}",
+                "- Verify uploaded files against md5sums and write recovery notes",
+            ],
+            "Start full backup now?",
+        ):
+            return
         if self.inputs.dry_run:
             self._print("dry-run: backup would create remote script and receive files")
             return
@@ -524,6 +631,15 @@ class InstallerWorkflow:
         self._print("backup completed and verified")
 
     def verify_backup(self) -> None:
+        if not self._confirm_step(
+            "Verify backup",
+            [
+                f"- Recheck the files already stored under {self.store.backup_dir}",
+                "- Refresh the session manifest and recovery notes",
+            ],
+            "Verify the existing backup now?",
+        ):
+            return
         md5_path = self.store.backup_dir / "md5sums"
         if not md5_path.exists():
             raise RuntimeError("backup md5sums file is missing; run backup first")
@@ -628,9 +744,22 @@ class InstallerWorkflow:
         return False
 
     def _handle_openwrt_probe(self) -> None:
+        self._print(
+            "\n".join(
+                [
+                    "Step 5/5: OpenWrt Handoff",
+                    "- The temporary OpenWrt environment should appear on 192.168.1.1 after reboot",
+                    "- You may need to move your host onto the ER605 link or assign a static 192.168.1.x address",
+                ]
+            )
+        )
         if self.inputs.skip_openwrt_probe:
             self._print("skipping automatic OpenWrt probe because --skip-openwrt-probe was requested")
             self._print_openwrt_network_handoff()
+            return
+        if not self._confirm_yes_no("Try automatic OpenWrt probe now?", default_yes=True):
+            self._print_openwrt_network_handoff()
+            self._print("Automatic probe skipped for now. Rerun `er605-installer` later to retry it.")
             return
         if self._probe_openwrt():
             return
@@ -659,15 +788,8 @@ class InstallerWorkflow:
             )
         )
 
-    def install_initramfs(self) -> None:
-        if not self.state.checkpoints["backup_verified"]:
-            raise RuntimeError("backup has not been verified; refusing to flash")
-        self._validate_local_artifacts()
-        if self.inputs.dry_run:
-            self._print("dry-run: install-initramfs would transfer files and stop before flash")
-            return
+    def _transfer_initramfs(self, login_password: str) -> None:
         expected_md5 = self._expected_initramfs_md5()
-        login_password = self._prompt_login_password()
         with self._runtime_dir("install-host") as transfer_dir:
             shutil.copy2(self.flash_script_path, transfer_dir / self.flash_script_path.name)
             shutil.copy2(self.initramfs_path, transfer_dir / self.initramfs_path.name)
@@ -695,6 +817,43 @@ class InstallerWorkflow:
             raise RuntimeError(f"required UBI volumes not present before flash: found {sorted(ubi_volumes)}")
         self.state.checkpoints["initramfs_transferred"] = True
         self.store.save(self.state)
+        self._print("initramfs files transferred and verified on the router")
+
+    def install_initramfs(self) -> None:
+        if not self.state.checkpoints["backup_verified"]:
+            raise RuntimeError("backup has not been verified; refusing to flash")
+        self._validate_local_artifacts()
+        if self.inputs.dry_run:
+            self._print("dry-run: install-initramfs would transfer files and stop before flash")
+            return
+        login_password: str | None = None
+        if not self.state.checkpoints["initramfs_transferred"]:
+            if not self._confirm_step(
+                "Step 3/5: Transfer Initramfs",
+                [
+                    "- Host the initramfs image and flash helper from this PC",
+                    "- Download both files to /tmp on the router",
+                    "- Verify checksum, size, and target UBI volumes before any write",
+                ],
+                "Transfer initramfs files to the router now?",
+            ):
+                return
+            login_password = self._prompt_login_password()
+            self._transfer_initramfs(login_password)
+        else:
+            self._print("Step 3/5: Transfer Initramfs already completed in this session.")
+        if not self._confirm_step(
+            "Step 4/5: Flash Initramfs",
+            [
+                "- Write the initramfs image to the kernel UBI volumes",
+                "- Reboot the router immediately afterward",
+                "- The stock router IP will stop being valid after reboot",
+            ],
+            "Proceed to flashing step?",
+        ):
+            return
+        if login_password is None:
+            login_password = self._prompt_login_password()
         self._typed_flash_confirmation()
         flash_report = self._run_stock_script(
             login_password=login_password,
@@ -712,19 +871,29 @@ class InstallerWorkflow:
         self._handle_openwrt_probe()
 
     def resume(self) -> None:
+        self.store.ensure_layout()
+        self._require_inputs()
+        self._sync_identity()
+        self._confirm_or_edit_identity()
         if not self.state.checkpoints["preflight_completed"]:
             self.preflight()
-            return
+            if not self.state.checkpoints["preflight_completed"]:
+                return
         if not self.state.checkpoints["backup_verified"]:
             self.backup()
-            return
+            if not self.state.checkpoints["backup_verified"]:
+                return
         if not self.state.checkpoints["initramfs_installed"]:
             self.install_initramfs()
-            return
+            if not self.state.checkpoints["initramfs_installed"]:
+                return
+            if not self.state.checkpoints["openwrt_probe_succeeded"]:
+                return
         if not self.state.checkpoints["openwrt_probe_succeeded"]:
             self._handle_openwrt_probe()
-            return
-        self._print("session is already complete")
+            if not self.state.checkpoints["openwrt_probe_succeeded"]:
+                return
+        self._print("Wizard completed successfully.")
 
 
 def load_config(path: Path | None) -> dict:

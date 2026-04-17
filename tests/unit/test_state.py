@@ -22,7 +22,7 @@ class StateTests(unittest.TestCase):
     def test_session_round_trip_preserves_manifest(self) -> None:
         with self._tempdir() as temp_dir:
             store = SessionStore(Path(temp_dir))
-            state = SessionState(router_ip="192.168.20.1", username="justus", mac="AA:BB:CC:DD:EE:FF")
+            state = SessionState(router_ip="192.168.0.1", username="justus", mac="AA:BB:CC:DD:EE:FF")
             state.backup_manifest["mtd0.backup"] = BackupEntry(
                 filename="mtd0.backup",
                 size=4,
@@ -31,7 +31,7 @@ class StateTests(unittest.TestCase):
             )
             store.save(state)
             loaded = store.load()
-            self.assertEqual(loaded.router_ip, "192.168.20.1")
+            self.assertEqual(loaded.router_ip, "192.168.0.1")
             self.assertTrue(loaded.backup_manifest["mtd0.backup"].verified)
 
 

@@ -32,16 +32,18 @@ class WorkflowTests(unittest.TestCase):
             encoding="utf-8",
         )
         inputs = Inputs(
-            router_ip="192.168.20.1",
+            router_ip="192.168.0.1",
             username="justus",
             mac="B8-FB-B3-2C-D7-69",
-            host_ip="192.168.20.2",
+            host_ip="192.168.0.2",
             firmware_version="2.2.5",
             session_dir=repo_root / ".er605_sessions" / "test",
             dry_run=False,
             skip_openwrt_probe=False,
         )
-        return InstallerWorkflow(repo_root, SessionStore(inputs.session_dir), inputs)
+        workflow = InstallerWorkflow(repo_root, SessionStore(inputs.session_dir), inputs)
+        workflow._confirm_yes_no = mock.Mock(return_value=True)
+        return workflow
 
     def test_install_requires_verified_backup(self) -> None:
         with self._tempdir() as temp_dir:
@@ -68,6 +70,33 @@ class WorkflowTests(unittest.TestCase):
                 workflow.resume()
             backup_mock.assert_called_once()
 
+    def test_resume_runs_steps_in_order_until_complete(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow._sync_identity()
+
+            def mark_preflight():
+                workflow.state.checkpoints["preflight_completed"] = True
+                workflow.store.save(workflow.state)
+
+            def mark_backup():
+                workflow.state.checkpoints["backup_verified"] = True
+                workflow.store.save(workflow.state)
+
+            def mark_install():
+                workflow.state.checkpoints["initramfs_installed"] = True
+                workflow.state.checkpoints["openwrt_probe_succeeded"] = True
+                workflow.store.save(workflow.state)
+
+            with mock.patch.object(workflow, "preflight", side_effect=mark_preflight) as preflight_mock:
+                with mock.patch.object(workflow, "backup", side_effect=mark_backup) as backup_mock:
+                    with mock.patch.object(workflow, "install_initramfs", side_effect=mark_install) as install_mock:
+                        workflow.resume()
+
+            preflight_mock.assert_called_once()
+            backup_mock.assert_called_once()
+            install_mock.assert_called_once()
+
     def test_run_stock_script_allows_expected_disconnect_after_success_marker(self) -> None:
         with self._tempdir() as temp_dir:
             workflow = self._workflow(temp_dir)
@@ -75,7 +104,7 @@ class WorkflowTests(unittest.TestCase):
             ssh_result = SSHResult(
                 returncode=255,
                 stdout="ER605KV flash_status=0\n",
-                stderr="Connection to 192.168.20.1 closed by remote host.\n",
+                stderr="Connection to 192.168.0.1 closed by remote host.\n",
                 command=["ssh"],
             )
             with mock.patch.object(workflow.ssh, "run_script", return_value=ssh_result):
@@ -95,7 +124,7 @@ class WorkflowTests(unittest.TestCase):
             workflow._sync_identity()
             ssh_result = SSHResult(
                 returncode=255,
-                stdout="root@ER605:/#\nConnection to 192.168.20.1 closed.\n",
+                stdout="root@ER605:/#\nConnection to 192.168.0.1 closed.\n",
                 stderr="",
                 command=["ssh"],
             )
@@ -146,7 +175,7 @@ class WorkflowTests(unittest.TestCase):
                     "ER605_SECTION_UBI_END",
                 ]
             )
-            flash_report = "ER605KV flash_status=0\nConnection to 192.168.20.1 closed by remote host.\n"
+            flash_report = "ER605KV flash_status=0\nConnection to 192.168.0.1 closed by remote host.\n"
 
             with mock.patch("er605_installer.core.workflow.HostedFiles", FakeHostedFiles):
                 with mock.patch.object(workflow, "_runtime_dir", return_value=FakeTemporaryDirectory()):
@@ -185,7 +214,7 @@ class WorkflowTests(unittest.TestCase):
                     "ER605_SECTION_UBI_END",
                 ]
             )
-            flash_report = "ER605KV flash_status=0\nConnection to 192.168.20.1 closed by remote host.\n"
+            flash_report = "ER605KV flash_status=0\nConnection to 192.168.0.1 closed by remote host.\n"
 
             with mock.patch.object(workflow, "_prompt_login_password", return_value="secret"):
                 with mock.patch.object(workflow, "_typed_flash_confirmation", return_value=None):

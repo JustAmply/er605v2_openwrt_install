@@ -62,7 +62,7 @@ class _ScriptedProcess:
             self.stdout.feed("root@ER605:/#")
         elif text == "exit\n":
             self.returncode = 0
-            self.stdout.feed("Connection to 192.168.20.1 closed.\n")
+            self.stdout.feed("Connection to 192.168.0.1 closed.\n")
             self.stdout.close()
 
     def poll(self):
@@ -126,13 +126,13 @@ class TransportTests(unittest.TestCase):
 
     def test_discover_router_mac_parses_windows_arp_output(self) -> None:
         arp_output = """
-Interface: 192.168.20.20 --- 0xf
+Interface: 192.168.0.1 --- 0xf
   Internet Address      Physical Address      Type
-  192.168.20.1          b8-fb-b3-2c-d7-69     dynamic
+  192.168.0.1          b8-fb-b3-2c-d7-69     dynamic
 """
         with mock.patch("er605_installer.core.transport.can_connect", return_value=True):
             with mock.patch("subprocess.check_output", return_value=arp_output):
-                mac = discover_router_mac("192.168.20.1")
+                mac = discover_router_mac("192.168.0.1")
 
         self.assertEqual(mac, "B8:FB:B3:2C:D7:69")
 

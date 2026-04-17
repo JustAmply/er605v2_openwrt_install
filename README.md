@@ -6,6 +6,24 @@ This repository provides a method to install OpenWrt on a factory-flashed TP-Lin
 This repository also includes a guarded host-side CLI wizard that automates the stock-to-OpenWrt flow with checkpoints, verified MTD backup handling, managed file serving, and an explicit flash confirmation gate.
 Run it from the downloaded repository root with `python -m er605_installer`.
 
+### Wizard Flow
+The default command launches a guided wizard with default-yes confirmations:
+
+1. Session review
+The CLI shows the detected or saved router values and asks whether to keep them.
+2. Preflight
+The CLI explains the inspection checks it will run against the router and local files, then asks to continue.
+3. Backup
+The CLI explains that it will read and verify the full MTD backup, then asks to continue.
+4. Transfer initramfs
+The CLI explains that it will copy the flash assets to `/tmp` on the router and verify them before any write, then asks to continue.
+5. Flash initramfs
+The CLI asks for a normal yes/no confirmation and then still requires the typed `FLASH <MAC>` phrase before writing.
+6. OpenWrt handoff
+The CLI explains the expected network change and asks whether it should try the automatic OpenWrt probe now.
+
+If you stop at any step, rerunning `python -m er605_installer` resumes from the next unfinished stage.
+
 ## Repository Layout
 - `er605_installer/`: public Python package entrypoints such as `python -m er605_installer`
 - `er605_installer/core/`: installer implementation, transport, state handling, and workflow logic
@@ -18,7 +36,7 @@ Example usage:
 python -m er605_installer
 python -m er605_installer resume
 python -m er605_installer preflight
-python -m er605_installer --router-ip 192.168.20.1 --username justus
+python -m er605_installer --router-ip 192.168.0.1 --username admin
 ```
 
 Supported subcommands:
