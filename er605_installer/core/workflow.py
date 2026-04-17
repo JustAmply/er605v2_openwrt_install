@@ -40,6 +40,7 @@ class Inputs:
     session_dir: Path
     dry_run: bool
     skip_openwrt_probe: bool
+    wizard_mode: bool = False
 
 
 class InstallerWorkflow:
@@ -100,6 +101,14 @@ class InstallerWorkflow:
         except OSError:
             return ""
 
+    def _detect_host_ip_or_empty(self, router_ip: str) -> str:
+        if not router_ip:
+            return ""
+        try:
+            return detect_host_ip(router_ip)
+        except OSError:
+            return ""
+
     def _wizard_status_lines(self) -> list[str]:
         checkpoints = self.state.checkpoints
         steps = [
@@ -130,6 +139,8 @@ class InstallerWorkflow:
         )
 
     def _confirm_or_edit_identity(self) -> None:
+        original_router_ip = self.state.router_ip
+        original_mac = self.state.mac
         self._print_wizard_overview()
         if self._confirm_yes_no("Use these values?", default_yes=True):
             return
@@ -145,10 +156,18 @@ class InstallerWorkflow:
             "Router MAC address",
             self.inputs.mac or self.state.mac,
         )
+        if self.inputs.router_ip != original_router_ip or self.inputs.mac != original_mac:
+            self.inputs.host_ip = ""
+            self.inputs.firmware_version = ""
+        self._rebind_session_for_identity()
         host_default = self._default_host_ip(self.inputs.router_ip)
+        if self.inputs.router_ip != self.state.router_ip:
+            host_default = self._detect_host_ip_or_empty(self.inputs.router_ip)
         if host_default:
             self.inputs.host_ip = self._prompt_with_default("Host IP for transfers", host_default)
-        firmware_default = self.inputs.firmware_version or self.state.firmware_version
+        firmware_default = self.inputs.firmware_version
+        if self.inputs.router_ip == self.state.router_ip and self.inputs.mac == self.state.mac:
+            firmware_default = firmware_default or self.state.firmware_version
         if firmware_default:
             self.inputs.firmware_version = self._prompt_with_default("Firmware version", firmware_default)
         self._sync_identity()
@@ -160,6 +179,11 @@ class InstallerWorkflow:
             return True
         self._print(f"{step_label} skipped.")
         return False
+
+    def _confirm_step_if_wizard(self, step_label: str, details: list[str], prompt: str) -> bool:
+        if not self.inputs.wizard_mode:
+            return True
+        return self._confirm_step(step_label, details, prompt)
 
     def _require_inputs(self) -> None:
         if not self.inputs.router_ip:
@@ -188,6 +212,20 @@ class InstallerWorkflow:
         self.state.root_password = derived["root_password"]
         self.state.debug_password = derived["debug_password"]
         self.store.save(self.state)
+
+    def _rebind_session_for_identity(self) -> None:
+        target_dir = resolve_session_dir(
+            repo_root=self.repo_root,
+            explicit=None,
+            router_ip=self.inputs.router_ip,
+            mac=self.inputs.mac,
+        ).resolve()
+        self.inputs.session_dir = target_dir
+        if target_dir == self.store.session_dir.resolve():
+            return
+        self.store = SessionStore(target_dir)
+        self.state = self.store.load()
+        self.ssh = SSHClient(repo_root=self.repo_root, known_hosts_path=self.store.known_hosts_path)
 
     def _print_identity_summary(self) -> None:
         self._print(
@@ -411,7 +449,7 @@ class InstallerWorkflow:
         self.store.ensure_layout()
         self._sync_identity()
         self._print_identity_summary()
-        if not self._confirm_step(
+        if not self._confirm_step_if_wizard(
             "Step 1/5: Preflight",
             [
                 "- Validate local initramfs files and checksum",
@@ -547,7 +585,7 @@ class InstallerWorkflow:
             self.preflight()
             if not self.state.checkpoints["preflight_completed"]:
                 return
-        if not self._confirm_step(
+        if not self._confirm_step_if_wizard(
             "Step 2/5: Backup",
             [
                 "- Read all MTD partitions from the router",
@@ -631,7 +669,7 @@ class InstallerWorkflow:
         self._print("backup completed and verified")
 
     def verify_backup(self) -> None:
-        if not self._confirm_step(
+        if not self._confirm_step_if_wizard(
             "Verify backup",
             [
                 f"- Recheck the files already stored under {self.store.backup_dir}",
@@ -757,7 +795,7 @@ class InstallerWorkflow:
             self._print("skipping automatic OpenWrt probe because --skip-openwrt-probe was requested")
             self._print_openwrt_network_handoff()
             return
-        if not self._confirm_yes_no("Try automatic OpenWrt probe now?", default_yes=True):
+        if self.inputs.wizard_mode and not self._confirm_yes_no("Try automatic OpenWrt probe now?", default_yes=True):
             self._print_openwrt_network_handoff()
             self._print("Automatic probe skipped for now. Rerun `er605-installer` later to retry it.")
             return
@@ -828,7 +866,7 @@ class InstallerWorkflow:
             return
         login_password: str | None = None
         if not self.state.checkpoints["initramfs_transferred"]:
-            if not self._confirm_step(
+            if not self._confirm_step_if_wizard(
                 "Step 3/5: Transfer Initramfs",
                 [
                     "- Host the initramfs image and flash helper from this PC",
@@ -842,7 +880,7 @@ class InstallerWorkflow:
             self._transfer_initramfs(login_password)
         else:
             self._print("Step 3/5: Transfer Initramfs already completed in this session.")
-        if not self._confirm_step(
+        if not self._confirm_step_if_wizard(
             "Step 4/5: Flash Initramfs",
             [
                 "- Write the initramfs image to the kernel UBI volumes",

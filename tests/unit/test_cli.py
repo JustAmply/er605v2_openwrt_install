@@ -43,7 +43,7 @@ class CliTests(unittest.TestCase):
     def test_resume_without_flags_uses_only_saved_session(self) -> None:
         with self._tempdir() as temp_dir:
             repo_root = Path(temp_dir)
-            session_dir = repo_root / ".er605_sessions" / "192-168-20-1-b8fbb32cd769"
+            session_dir = repo_root / ".er605_sessions" / "192-168-0-1-b8fbb32cd769"
             session_dir.mkdir(parents=True)
             (session_dir / "session.json").write_text("{}", encoding="utf-8")
 
@@ -67,7 +67,7 @@ class CliTests(unittest.TestCase):
     def test_router_ip_reuses_matching_saved_session_without_mac(self) -> None:
         with self._tempdir() as temp_dir:
             repo_root = Path(temp_dir)
-            session_dir = repo_root / ".er605_sessions" / "192-168-20-1-b8fbb32cd769"
+            session_dir = repo_root / ".er605_sessions" / "192-168-0-1-b8fbb32cd769"
             session_dir.mkdir(parents=True)
             (session_dir / "session.json").write_text(
                 json.dumps(

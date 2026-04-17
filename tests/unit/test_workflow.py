@@ -33,13 +33,14 @@ class WorkflowTests(unittest.TestCase):
         )
         inputs = Inputs(
             router_ip="192.168.0.1",
-            username="justus",
+            username="admin",
             mac="B8-FB-B3-2C-D7-69",
             host_ip="192.168.0.2",
             firmware_version="2.2.5",
             session_dir=repo_root / ".er605_sessions" / "test",
             dry_run=False,
             skip_openwrt_probe=False,
+            wizard_mode=True,
         )
         workflow = InstallerWorkflow(repo_root, SessionStore(inputs.session_dir), inputs)
         workflow._confirm_yes_no = mock.Mock(return_value=True)
@@ -96,6 +97,46 @@ class WorkflowTests(unittest.TestCase):
             preflight_mock.assert_called_once()
             backup_mock.assert_called_once()
             install_mock.assert_called_once()
+
+    def test_identity_edit_rebinds_to_router_specific_session(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow._sync_identity()
+            workflow.state.checkpoints["backup_verified"] = True
+            workflow.store.save(workflow.state)
+
+            target_dir = Path(temp_dir) / ".er605_sessions" / "192-168-0-2-aabbccddeeff"
+            target_store = SessionStore(target_dir)
+            target_state = target_store.load()
+            target_state.router_ip = "192.168.0.2"
+            target_state.username = "admin"
+            target_state.mac = "AA:BB:CC:DD:EE:FF"
+            target_state.host_ip = "192.168.0.3"
+            target_store.save(target_state)
+
+            with mock.patch.object(workflow, "_confirm_yes_no", return_value=False):
+                with mock.patch(
+                    "builtins.input",
+                    side_effect=["192.168.0.2", "admin", "AA-BB-CC-DD-EE-FF", "", ""],
+                ):
+                    workflow._confirm_or_edit_identity()
+
+            self.assertEqual(workflow.store.session_dir, target_dir)
+            self.assertEqual(workflow.state.router_ip, "192.168.0.2")
+            self.assertEqual(workflow.state.mac, "AA:BB:CC:DD:EE:FF")
+            self.assertFalse(workflow.state.checkpoints["backup_verified"])
+
+    def test_preflight_subcommand_runs_without_wizard_confirmation(self) -> None:
+        with self._tempdir() as temp_dir:
+            workflow = self._workflow(temp_dir)
+            workflow.inputs.wizard_mode = False
+
+            with mock.patch.object(workflow, "_confirm_step") as confirm_mock:
+                workflow.inputs.dry_run = True
+                workflow.preflight()
+
+            confirm_mock.assert_not_called()
+            self.assertTrue(workflow.state.checkpoints["preflight_completed"] is False)
 
     def test_run_stock_script_allows_expected_disconnect_after_success_marker(self) -> None:
         with self._tempdir() as temp_dir:
@@ -341,9 +382,9 @@ class WorkflowTests(unittest.TestCase):
         with self._tempdir() as temp_dir:
             workflow = self._workflow(temp_dir)
 
-            script = workflow._build_backup_script(set(), "192.168.20.2", 9999)
+            script = workflow._build_backup_script(set(), "192.168.0.2", 9999)
 
-            self.assertIn('BACKUP_URL="http://192.168.20.2:9999"', script)
+            self.assertIn('BACKUP_URL="http://192.168.0.2:9999"', script)
             self.assertIn('curl -f -sS -X PUT -H "Content-Length: $SIZE_BYTES"', script)
             self.assertNotIn("busybox nc", script)
             self.assertLess(script.index("Uploading $FILENAME"), script.index(': > /tmp/md5sums'))
@@ -353,7 +394,7 @@ class WorkflowTests(unittest.TestCase):
             workflow = self._workflow(temp_dir)
 
             backup_launch = workflow._build_backup_launch_script("#!/bin/sh\necho ok\n")
-            transfer_script = workflow._build_transfer_script("192.168.20.2", 8000)
+            transfer_script = workflow._build_transfer_script("192.168.0.2", 8000)
 
             self.assertNotIn("curl -f -o backup.sh", backup_launch)
             self.assertIn("printf '%s\\n'", backup_launch)

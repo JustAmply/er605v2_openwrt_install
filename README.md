@@ -23,6 +23,7 @@ The CLI asks for a normal yes/no confirmation and then still requires the typed 
 The CLI explains the expected network change and asks whether it should try the automatic OpenWrt probe now.
 
 If you stop at any step, rerunning `python -m er605_installer` resumes from the next unfinished stage.
+If you call an explicit subcommand such as `preflight` or `backup`, the CLI runs that step directly instead of showing the full wizard confirmations.
 
 ## Repository Layout
 - `er605_installer/`: public Python package entrypoints such as `python -m er605_installer`

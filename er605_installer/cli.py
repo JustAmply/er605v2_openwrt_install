@@ -124,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         session_dir=session_dir,
         dry_run=bool(args.dry_run),
         skip_openwrt_probe=bool(args.skip_openwrt_probe),
+        wizard_mode=args.command == "resume",
     )
     workflow = InstallerWorkflow(
         repo_root=repo_root,
